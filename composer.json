@@ -1,5 +1,5 @@
 {
-    "name": "chiefme/phploy",
+    "name": "banago/phploy",
     "description": "PHPloy - Incremental Git (S)FTP deployment tool that supports submodules, multiple servers and rollbacks.",
     "license": "MIT",
     "keywords": ["deploy", "ftp", "sftp", "git"],
