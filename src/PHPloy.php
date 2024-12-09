@@ -291,6 +291,9 @@ class PHPloy
      */
     public function __construct(Options $opt = null)
     {
+
+        ini_set('max_execution_time', '300'); 
+
         $this->opt = $opt !== null ? $opt : new Options(new \League\CLImate\CLImate());
         $this->cli = $this->opt->cli;
 

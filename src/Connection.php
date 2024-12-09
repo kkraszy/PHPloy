@@ -54,7 +54,7 @@ class Connection
             'username' => $server['user'],
             'password' => $server['pass'],
             'root' => $server['path'],
-            'timeout' => ($server['timeout'] ?: 30),
+            'timeout' => ($server['timeout'] ?: 300),
             'directoryPerm' => $server['directoryPerm'],
         ];
         if ($server['permissions']) {
