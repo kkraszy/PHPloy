@@ -1568,6 +1568,7 @@ class PHPloy
     public function executeOnRemoteServer(array $commands)
     {
         $connection = $this->connectionProvider->provideConnection();
+        $connection->setTimeout(300);
 
         if ($this->servers[$this->currentServerName]['scheme'] != 'sftp') {
             $this->cli->yellow()->out("\r\nConnection scheme is not 'sftp' ignoring [pre/post]-deploy-remote");
@@ -1586,6 +1587,8 @@ class PHPloy
             $command = "cd {$this->servers[$this->currentServerName]['path']}; {$command}";
             $output = $connection->exec($command);
             $this->cli->lightBlue()->out("<bold>{$output}");
+            $this->cli->green()->out("Sleep 1s");
+            sleep(1);
         }
     }
 
