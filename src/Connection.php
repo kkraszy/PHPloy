@@ -90,7 +90,9 @@ class Connection
             $options['passive'] = isset($server['passive'])
               ? (bool) $server['passive']
               : true;
-            $options['ssl'] = ($server['ssl'] ?: false);
+            
+            $options['ssl'] = $server['ssl'] !== false;
+
             $options['port'] = (intval($server['port'] ?: 21));
 
 
