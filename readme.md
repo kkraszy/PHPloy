@@ -9,17 +9,6 @@ PHPloy stores a file called `.revision` on your server. This file contains the h
 
 ## Install 
 
-### Via Composer
-
-If you have composer installed in your machine, you can pull PHPloy globally like this:
-
-```bash
-composer global require "banago/phploy"
-```
-
-Make sure to place the `$HOME/.composer/vendor/bin` directory (or the [equivalent directory](http://stackoverflow.com/a/40470979/512277) for your OS) 
-in your `$PATH` so the PHPloy executable can be located by your system.
-
 ### Via Phar Archive
 
 You can install PHPloy Phar globally, in your `/usr/local/bin` directory or, locally, in your project directory. **Rename** `phploy.phar` to `phploy` for ease of use.
