@@ -1596,6 +1596,7 @@ class PHPloy
 
             // Fix permissions after mv command
             if ($isMvCommand) {
+                $this->cli->blue()->out("Fix file permissions (644 is standard for web files) after mv command");
                 // Fix file permissions (644 is standard for web files)
                 $chmodFilesCmd = 'find ./ -type f -exec chmod 644 {} \;';
                 $this->cli->blue()->out("Executing on remote server: <bold>{$chmodFilesCmd}");
