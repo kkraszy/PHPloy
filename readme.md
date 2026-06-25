@@ -48,10 +48,10 @@ The `phploy.ini` file holds your project configuration. It should be located in 
     port = 22
     ; You can specify a branch to deploy from
     branch = develop
-    ; File permission set on the uploaded files/directories
-    permissions = 0700
-    ; File permissions set on newly created directories
-    directoryPerm = 0775
+    ; Permissions applied to every uploaded file (default: 0644)
+    permissions = 0644
+    ; Permissions applied to every created directory (default: 0755)
+    directoryPerm = 0755
     ; Deploy only this directory as base directory
     base = 'directory-name/'
     ; Files that should be ignored and not uploaded to your server, but still tracked in your repository
@@ -89,9 +89,9 @@ The `phploy.ini` file holds your project configuration. It should be located in 
     ssl = false
     ; You can specify a branch to deploy from
     branch = master
-    ; File permission set on the uploaded files/directories
-    permissions = 0774
-    ; File permissions set on newly created directories
+    ; Permissions applied to every uploaded file (default: 0644)
+    permissions = 0644
+    ; Permissions applied to every created directory (default: 0755)
     directoryPerm = 0755
     ; Files that should be ignored and not uploaded to your server, but still tracked in your repository
     exclude[] = 'libs/*'

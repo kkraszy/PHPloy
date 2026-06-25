@@ -8,7 +8,7 @@
  * @link https://github.com/banago/PHPloy
  * @licence MIT Licence
  *
- * @version 4.9.3
+ * @version 4.10.0
  */
 
 namespace Banago\PHPloy;
@@ -25,7 +25,7 @@ class PHPloy
     /**
      * @var string
      */
-    protected $version = '4.9.3';
+    protected $version = '4.10.0';
 
     /**
      * @var string
@@ -477,8 +477,8 @@ class PHPloy
             'timeout' => null,
             'ssl' => false,
             'visibility' => 'public',
-            'permPublic' => 0774,
-            'permPrivate' => 0700,
+            'permPublic' => 0644,
+            'permPrivate' => 0640,
             'permissions' => null,
             'directoryPerm' => 0755,
             'branch' => '',
