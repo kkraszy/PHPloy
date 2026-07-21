@@ -1584,35 +1584,11 @@ class PHPloy
 
         foreach ($commands as $command) {
             $this->cli->blue()->out("Executing on remote server: <bold>{$command}");
-            
-            // Check if this is a mv command before modifying the command string
-            $isMvCommand = strpos(trim($command), 'mv ') === 0;
-            
             $fullCommand = "cd {$this->servers[$this->currentServerName]['path']}; {$command}";
             $output = $connection->exec($fullCommand);
             $this->cli->lightBlue()->out("<bold>{$output}");
             $this->cli->green()->out("Sleep 1s");
             sleep(1);
-
-            // Fix permissions after mv command
-            if ($isMvCommand) {
-                $this->cli->blue()->out("Fix file permissions (644 is standard for web files) after mv command");
-                // Fix file permissions (644 is standard for web files)
-                $chmodFilesCmd = 'find ./ -type f -exec chmod 644 {} \;';
-                $this->cli->blue()->out("Executing on remote server: <bold>{$chmodFilesCmd}");
-                $fullChmodFilesCmd = "cd {$this->servers[$this->currentServerName]['path']}; {$chmodFilesCmd}";
-                $output = $connection->exec($fullChmodFilesCmd);
-                $this->cli->lightBlue()->out("<bold>{$output}");
-                
-                // Fix directory permissions (755 is standard for web directories)
-                $chmodDirsCmd = 'find ./ -type d -exec chmod 755 {} \;';
-                $this->cli->blue()->out("Executing on remote server: <bold>{$chmodDirsCmd}");
-                $fullChmodDirsCmd = "cd {$this->servers[$this->currentServerName]['path']}; {$chmodDirsCmd}";
-                $output = $connection->exec($fullChmodDirsCmd);
-                $this->cli->lightBlue()->out("<bold>{$output}");
-                
-                $this->cli->green()->out("Fixed permissions after mv command");
-            }
         }
     }
 
