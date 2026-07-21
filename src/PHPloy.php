@@ -68,6 +68,14 @@ class PHPloy
     public $base = false;
 
     /**
+     * The base directory of each server, keyed by server name. Used to reset $this->base
+     * when moving from one server to the next.
+     *
+     * @var array
+     */
+    public $baseDirs = [];
+
+    /**
      * A list of files that should NOT be uploaded to any of the servers.
      *
      * @var array
@@ -471,6 +479,7 @@ class PHPloy
             'user' => '',
             'pass' => '',
             'path' => '/',
+            'base' => '',
             'privkey' => '',
             'port' => null,
             'passive' => null,
@@ -615,9 +624,9 @@ class PHPloy
             $this->filesToExclude[$name] = $this->globalFilesToExclude;
             $this->filesToExclude[$name][] = $this->iniFileName;
 
-            if (!empty($options['base'])) {
-                $this->base = rtrim($options['base'], '/').'/';
-            }
+            // Kept per server, otherwise a server without a base would inherit
+            // the base of a previously parsed one.
+            $this->baseDirs[$name] = !empty($options['base']) ? rtrim($options['base'], '/').'/' : false;
 
             if (!empty($options['exclude'])) {
                 $this->filesToExclude[$name] = array_merge($this->filesToExclude[$name], $options['exclude']);
@@ -811,6 +820,9 @@ class PHPloy
     {
         $filteredFiles = [];
         foreach ($files as $i => $file) {
+            // Must be reset, otherwise an entry without a condition would inherit
+            // the condition of a previous entry.
+            $changed = null;
             $condition = explode(':', $file);
             if (isset($condition[1])) {
                 list($file, $changed) = $condition;
@@ -863,6 +875,7 @@ class PHPloy
         foreach ($this->servers as $name => $server) {
             $this->currentServerName = $name;
             $this->currentServerInfo = $server;
+            $this->base = isset($this->baseDirs[$name]) ? $this->baseDirs[$name] : false;
 
             // If a server is specified, it's deployed only to that
             if ($this->server != '' && $this->server != $name) {
@@ -1158,6 +1171,11 @@ class PHPloy
 
         unset($files); // No longer needed
 
+        // Files that could not be uploaded. As long as this is not empty the remote
+        // revision must not be moved forward, otherwise those files would silently
+        // be considered deployed and never retried.
+        $failedUploads = [];
+
         // Upload Files
         if (count($filesToUpload) > 0) {
             foreach ($filesToUpload as $fileNo => $file) {
@@ -1206,16 +1224,17 @@ class PHPloy
                 try {
                     $this->connection->write($remoteFile, $data);
                 } catch (FilesystemException | UnableToCheckExistence $e) {
-                    $this->cli->error(" ! Failed to upload {$fileBaseless}.");
+                    $this->cli->error(" ! Failed to upload {$fileBaseless}: ".$e->getMessage());
+                    $this->cli->info(' * Trying to reconnect...');
 
-                    if (!$this->connection) {
-                        $this->cli->info(' * Connection lost, trying to reconnect...');
+                    try {
                         $this->connect($this->currentServerInfo);
-                        try {
-                            $this->connection->write($remoteFile, $data);
-                        } catch (FilesystemException | UnableToCheckExistence $e) {
-                            $this->cli->error(" ! Failed to upload {$fileBaseless}.");
-                        }
+                        $this->connection->write($remoteFile, $data);
+                    } catch (\Throwable $e) {
+                        $this->cli->error(" ! Failed to upload {$fileBaseless} after reconnecting: ".$e->getMessage());
+                        $failedUploads[] = $fileBaseless;
+
+                        continue;
                     }
                 }
 
@@ -1260,7 +1279,13 @@ class PHPloy
             }
         }
 
-        if (count($filesToUpload) > 0 or count($filesToDelete) > 0) {
+        if (count($failedUploads) > 0) {
+            $this->cli->bold()->error(' ! '.count($failedUploads).' file(s) failed to upload:');
+            foreach ($failedUploads as $failedUpload) {
+                $this->cli->error('     '.$failedUpload);
+            }
+            $this->cli->bold()->error(' ! Remote revision was NOT updated, so these files are retried on the next deployment.');
+        } elseif (count($filesToUpload) > 0 or count($filesToDelete) > 0) {
             // If $this->revision is not HEAD, it means the rollback command was provided
             if ($this->revision != 'HEAD') {
                 // Get rollback revision (current HEAD is on rollback revision)
@@ -1281,7 +1306,9 @@ class PHPloy
         }
 
         $this->log('[SHA: '.$localRevision.'] Deployment to server: "'.$this->currentServerName.'" from branch "'.
-            $initialBranch.'". '.count($filesToUpload).' files uploaded; '.count($filesToDelete).' files deleted.');
+            $initialBranch.'". '.(count($filesToUpload) - count($failedUploads)).' files uploaded; '.
+            count($failedUploads).' files failed; '.count($filesToDelete).' files deleted.',
+            count($failedUploads) > 0 ? 'ERROR' : 'INFO');
     }
 
     /**
@@ -1422,13 +1449,14 @@ class PHPloy
         foreach ($purgeDirs as $dir) {
             $this->cli->out("<red>Purging directory <white>{$dir}");
 
-            // Recursive file/dir listing
-            $contents = $this->connection->listContents($dir, true);
+            // Recursive file/dir listing. Flysystem 3 returns a DirectoryListing,
+            // which is not countable, so it has to be materialized first.
+            $contents = $this->connection->listContents($dir, true)->toArray();
 
             if (count($contents) < 1) {
                 $this->cli->out(" - Nothing to purge in {$dir}");
 
-                return;
+                continue;
             }
 
             $innerDirs = [];
@@ -1472,22 +1500,23 @@ class PHPloy
             // Skip to next element if to and from are the same
             if ($fromDir == $toDir) {
                 $this->cli->out("<red>Omitting directory <white>{$fromDir}<red>, as it would copy on itself");
-                break;
+                continue;
             }
             // Skip to next element if from is not present
             if (!$this->connection->has($fromDir)) {
                 $this->cli->out("<red>Omitting directory <white>{$fromDir}<red>, as it does not exist on the server");
-                break;
+                continue;
             }
             $this->cli->out("<red>Copying directory <white>{$fromDir}<red> to <white>{$toDir}");
 
-            // File/dir listing
-            $contents = $this->connection->listContents($fromDir, false);
+            // File/dir listing. Flysystem 3 returns a DirectoryListing,
+            // which is not countable, so it has to be materialized first.
+            $contents = $this->connection->listContents($fromDir, false)->toArray();
 
             if (count($contents) < 1) {
                 $this->cli->out(" - Nothing to copy in {$fromDir}");
 
-                return;
+                continue;
             }
 
             foreach ($contents as $item) {
@@ -1567,14 +1596,16 @@ class PHPloy
      */
     public function executeOnRemoteServer(array $commands)
     {
-        $connection = $this->connectionProvider->provideConnection();
-        $connection->setTimeout(300);
-
-        if ($this->servers[$this->currentServerName]['scheme'] != 'sftp') {
+        // The connection provider only exists for SFTP, so the scheme has to be
+        // checked before asking for a connection.
+        if ($this->servers[$this->currentServerName]['scheme'] != 'sftp' || $this->connectionProvider === null) {
             $this->cli->yellow()->out("\r\nConnection scheme is not 'sftp' ignoring [pre/post]-deploy-remote");
 
             return;
         }
+
+        $connection = $this->connectionProvider->provideConnection();
+        $connection->setTimeout(300);
 
         if (!$connection->isConnected()) {
             $this->cli->red()->out("\r\nSFTP adapter connection problem skipping '[pre/post]-deploy-remote' commands");

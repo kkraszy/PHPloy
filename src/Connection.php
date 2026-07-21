@@ -126,17 +126,19 @@ class Connection
      *
      * @throws \Exception if it can't connect to FTP server
      *
-     * @return Filesystem|null
+     * @return Filesystem
      */
     protected function connectToFtp($server)
     {
         try {
             $options = $this->getCommonOptions($server);
-            $options['passive'] = isset($server['passive'])
-              ? (bool) $server['passive']
-              : true;
-            
-            $options['ssl'] = $server['ssl'] !== false;
+            // parse_ini_file() turns "false"/"no"/"off" into an empty string, so
+            // booleans have to go through filter_var() to be read correctly.
+            $options['passive'] = $server['passive'] === null
+              ? true
+              : filter_var($server['passive'], FILTER_VALIDATE_BOOLEAN);
+
+            $options['ssl'] = filter_var($server['ssl'], FILTER_VALIDATE_BOOLEAN);
 
             $options['port'] = (intval($server['port'] ?: 21));
 
@@ -152,7 +154,7 @@ class Connection
 
             return new Filesystem($ftpAdapter, $this->getDefaultConfig($server));
         } catch (\Exception $e) {
-            echo "\r\nOh Snap: {$e->getMessage()}\r\n";
+            throw new \Exception("Could not connect to FTP server '{$server['host']}': {$e->getMessage()}", 0, $e);
         }
     }
 
@@ -163,20 +165,20 @@ class Connection
      *
      * @throws \Exception if it can't connect to FTP server
      *
-     * @return Filesystem|null
+     * @return Filesystem
      */
     protected function connectToSftp($server)
     {
+        if (!empty($server['privkey']) && '~' === $server['privkey'][0] && getenv('HOME') !== null) {
+            $server['privkey'] = substr_replace($server['privkey'], getenv('HOME'), 0, 1);
+        }
+
+        if (!empty($server['privkey']) && !is_file($server['privkey']) && "---" !== substr($server['privkey'], 0, 3)) {
+            throw new \Exception("Private key {$server['privkey']} doesn't exists.");
+        }
+
         try {
             $options = $this->getCommonOptions($server);
-            if (!empty($server['privkey']) && '~' === $server['privkey'][0] && getenv('HOME') !== null) {
-                $server['privkey'] = substr_replace($server['privkey'], getenv('HOME'), 0, 1);
-            }
-
-            if (!empty($server['privkey']) && !is_file($server['privkey']) && "---" !== substr($server['privkey'], 0, 3)) {
-                throw new \Exception("Private key {$server['privkey']} doesn't exists.");
-            }
-
             $options['privateKey'] = $server['privkey'];
             $options['port'] = ($server['port'] ?: 22);
 
@@ -196,7 +198,7 @@ class Connection
                 $this->getDefaultConfig($server)
             );
         } catch (\Exception $e) {
-            echo "\r\nOh Snap: {$e->getMessage()}\r\n";
+            throw new \Exception("Could not connect to SFTP server '{$server['host']}': {$e->getMessage()}", 0, $e);
         }
     }
 
