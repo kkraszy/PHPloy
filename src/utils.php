@@ -79,7 +79,9 @@ function input_password()
     
     while (true) {
         $char = fgetc(STDIN);
-        if ($char === "\n") {
+        // false means EOF, e.g. stdin redirected from /dev/null. Without this
+        // the loop would spin forever instead of returning what it has.
+        if ($char === false || $char === "\n") {
             break;
         } elseif (ord($char) === 127) {
             if (strlen($pass) > 0) {

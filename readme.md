@@ -43,6 +43,11 @@ The `phploy.ini` file holds your project configuration. It should be located in 
     pass = password
     ; Or private key-based authentication:
     privkey = 'path/to/or/contents/of/privatekey'
+    ; If the key is protected with a passphrase, PHPloy asks for it on the
+    ; terminal. Passphrases are never stored in a file. For unattended runs
+    ; set the PHPLOY_PRIVKEY_PASS environment variable instead.
+    ; Or let an ssh-agent hold the key, so no passphrase is needed at all:
+    agent = true
     host = staging-example.com
     path = /path/to/installation
     port = 22
@@ -120,7 +125,9 @@ There is also an option to store the user and password in a file called `.phploy
     pass="thePassword"
 ```
 
-This feature is especially useful if you would like to share your phploy.ini via Git but hide your password from the public.
+This feature is especially useful if you would like to share your phploy.ini via Git but hide your password from the public. Neither `phploy.ini` nor `.phploy` is ever uploaded to the server.
+
+The passphrase of a private key is deliberately **not** among the values that can be stored in `.phploy`. When a key is encrypted, PHPloy asks for the passphrase on the terminal and keeps it in memory for that run only. For unattended deployments either put the passphrase in `PHPLOY_PRIVKEY_PASS`, or - better - load the key into an `ssh-agent` and set `agent = true` for the server.
 
 You can also use environment variables to deploy without storing your credentials in a file.
 These variables will be used if they do not exist in the `phploy.ini` file:
@@ -131,6 +138,7 @@ PHPLOY_PASS
 PHPLOY_PATH
 PHPLOY_USER
 PHPLOY_PRIVKEY
+PHPLOY_PRIVKEY_PASS
 ```
 
 These variables can be used like this;

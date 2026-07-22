@@ -83,6 +83,8 @@ class PHPloy
     public $globalFilesToExclude = [
         '.gitignore',
         '.gitmodules',
+        // Holds credentials, must never end up on the server.
+        '.phploy',
     ];
 
     /**
@@ -481,6 +483,7 @@ class PHPloy
             'path' => '/',
             'base' => '',
             'privkey' => '',
+            'agent' => false,
             'port' => null,
             'passive' => null,
             'timeout' => null,
@@ -605,8 +608,12 @@ class PHPloy
                 $options['privkey'] = getenv('PHPLOY_PRIVKEY');
             }
 
-            // Ask for a password if it is empty and a private key is not provided
-            if ($options['pass'] === '' && $options['privkey'] === '') {
+            $usesAgent = filter_var($options['agent'], FILTER_VALIDATE_BOOLEAN);
+
+            // Ask for a password if it is empty and neither a private key nor an
+            // ssh-agent is used to authenticate. A key passphrase is not asked
+            // for here: Connection does that, and only if the key is encrypted.
+            if ($options['pass'] === '' && $options['privkey'] === '' && !$usesAgent) {
                 // Look for .phploy config file
                 if (file_exists($this->getPasswordFile())) {
                     $options['pass'] = $this->getPasswordFromIniFile($name);

@@ -9,6 +9,8 @@ use League\Flysystem\PhpseclibV3\ConnectionProvider;
 use League\Flysystem\PhpseclibV3\SftpAdapter as SftpAdapter;
 use League\Flysystem\PhpseclibV3\SftpConnectionProvider;
 use League\Flysystem\UnixVisibility\PortableVisibilityConverter;
+use phpseclib3\Crypt\PublicKeyLoader;
+use phpseclib3\Exception\NoKeyLoadedException;
 
 /**
  * Class Connection.
@@ -177,19 +179,35 @@ class Connection
             throw new \Exception("Private key {$server['privkey']} doesn't exists.");
         }
 
-        try {
-            $options = $this->getCommonOptions($server);
-            $options['privateKey'] = $server['privkey'];
-            $options['port'] = ($server['port'] ?: 22);
+        $options = $this->getCommonOptions($server);
+        $options['privateKey'] = $server['privkey'];
+        $options['port'] = ($server['port'] ?: 22);
 
+        $useAgent = filter_var($server['agent'] ?? false, FILTER_VALIDATE_BOOLEAN);
+
+        // The passphrase is resolved before connecting so that a locked key is
+        // reported as such instead of failing later as an unexplained
+        // "unable to authenticate".
+        $passphrase = null;
+        if (!empty($options['privateKey']) && !$useAgent) {
+            $passphrase = $this->resolvePassphrase($options['privateKey'], $options['password']);
+        }
+
+        try {
             $this->provider = new SftpConnectionProvider(
                 $options['host'],
                 $options['username'],
-                empty($options['privateKey']) ? $options['password'] : null, // password
-                !empty($options['privateKey']) ? $options['privateKey'] : null, // key
-                !empty($options['privateKey']) ? $options['password'] : null, // passphrase
-                $options['port']
+                (empty($options['privateKey']) && !$useAgent) ? $options['password'] : null, // password
+                (!empty($options['privateKey']) && !$useAgent) ? $options['privateKey'] : null, // key
+                $passphrase,
+                $options['port'],
+                $useAgent
             );
+
+            // Connect eagerly: the provider is lazy, so without this an
+            // authentication failure would only surface much later as a
+            // confusing "unable to check existence for .revision".
+            $this->provider->provideConnection();
 
             $visibilityConverter = $this->getVisibilityConverter($options);
 
@@ -197,9 +215,144 @@ class Connection
                 new SftpAdapter($this->provider, $options['root'], $visibilityConverter),
                 $this->getDefaultConfig($server)
             );
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             throw new \Exception("Could not connect to SFTP server '{$server['host']}': {$e->getMessage()}", 0, $e);
         }
+    }
+
+    /**
+     * Returns a passphrase that actually unlocks the given private key.
+     *
+     * Passphrases are deliberately never read from - nor written to - a file:
+     * the configured one is tried first, then PHPLOY_PRIVKEY_PASS (for CI), and
+     * finally the user is asked interactively. It only lives in memory.
+     *
+     * @param string $privkey  path to, or contents of, the private key
+     * @param string $password the 'pass' value configured for the server
+     *
+     * @throws \Exception if the key cannot be loaded
+     *
+     * @return string|null the working passphrase, null if the key is not encrypted
+     */
+    private function resolvePassphrase($privkey, $password)
+    {
+        $key = $this->readPrivateKey($privkey);
+
+        // An unencrypted key loads with no passphrase at all; passing one anyway
+        // is harmless but pointless, so report it as "none needed".
+        if ($this->keyUnlocks($key, null)) {
+            return null;
+        }
+
+        foreach ([$password, getenv('PHPLOY_PRIVKEY_PASS')] as $candidate) {
+            if (is_string($candidate) && $candidate !== '' && $this->keyUnlocks($key, $candidate)) {
+                return $candidate;
+            }
+        }
+
+        if (!$this->isEncryptedKey($key)) {
+            throw new \Exception("Private key '{$privkey}' could not be read. Is it a valid OpenSSH/PEM private key?");
+        }
+
+        if (!$this->canPrompt()) {
+            throw new \Exception(
+                "Private key '{$privkey}' is protected with a passphrase and there is no terminal to ask for it. ".
+                'Set the PHPLOY_PRIVKEY_PASS environment variable or use an ssh-agent (agent = true).'
+            );
+        }
+
+        for ($attempt = 1; $attempt <= 3; ++$attempt) {
+            fwrite(STDOUT, "Enter passphrase for private key '{$privkey}': ");
+            $passphrase = input_password();
+            fwrite(STDOUT, "\r\n");
+
+            if ($this->keyUnlocks($key, $passphrase)) {
+                return $passphrase;
+            }
+
+            fwrite(STDOUT, "Wrong passphrase, please try again.\r\n");
+        }
+
+        throw new \Exception("Could not unlock private key '{$privkey}': wrong passphrase.");
+    }
+
+    /**
+     * Reads the private key, which may be given as a path or as its contents.
+     *
+     * @param string $privkey
+     *
+     * @return string the key contents
+     */
+    private function readPrivateKey($privkey)
+    {
+        if ('---' !== substr($privkey, 0, 3) && is_file($privkey)) {
+            return (string) file_get_contents($privkey);
+        }
+
+        return $privkey;
+    }
+
+    /**
+     * @param string      $key        the private key contents
+     * @param string|null $passphrase
+     *
+     * @return bool true if the key can be loaded with this passphrase
+     */
+    private function keyUnlocks($key, $passphrase)
+    {
+        try {
+            PublicKeyLoader::load($key, $passphrase === null ? false : $passphrase);
+
+            return true;
+        } catch (NoKeyLoadedException $e) {
+            return false;
+        } catch (\Throwable $e) {
+            return false;
+        }
+    }
+
+    /**
+     * Tells an encrypted key apart from an unreadable one, so that the user is
+     * only asked for a passphrase when one can actually help.
+     *
+     * @param string $key the private key contents
+     *
+     * @return bool
+     */
+    private function isEncryptedKey($key)
+    {
+        // PKCS#1 ("BEGIN RSA PRIVATE KEY") and PKCS#8 announce encryption in
+        // plain text.
+        if (false !== strpos($key, 'ENCRYPTED')) {
+            return true;
+        }
+
+        // The OpenSSH format keeps the cipher name inside the base64 body.
+        if (!preg_match('#-----BEGIN OPENSSH PRIVATE KEY-----(.+)-----END#s', $key, $matches)) {
+            return false;
+        }
+
+        $body = base64_decode(preg_replace('#\s+#', '', $matches[1]), true);
+        if ($body === false || 0 !== strpos($body, "openssh-key-v1\0")) {
+            return false;
+        }
+
+        // magic + 4 byte length, then the cipher name; "none" means unencrypted.
+        $cipher = substr($body, 19, unpack('N', substr($body, 15, 4))[1]);
+
+        return $cipher !== 'none';
+    }
+
+    /**
+     * @return bool true if a passphrase can be asked for interactively
+     */
+    private function canPrompt()
+    {
+        if (!defined('STDIN') || !defined('STDOUT')) {
+            return false;
+        }
+
+        return function_exists('stream_isatty') ? stream_isatty(STDIN) : true;
     }
 
     /**
