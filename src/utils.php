@@ -100,6 +100,36 @@ function input_password()
 }
 
 /**
+ * Turns a permission value from the ini file into a chmod mode.
+ *
+ * Everybody writes permissions the way chmod takes them, so "644" has to mean
+ * the same as "0644". Reading it as a decimal number instead would chmod the
+ * file to 01204 (-w----r--), which is exactly how uploaded files end up
+ * unreadable for the web server.
+ *
+ * @param mixed $value the configured value, as string or int
+ *
+ * @return int|null the mode, or null if the value can't be understood
+ */
+function parse_permission($value)
+{
+    // A value coming from PHP code (0644) already is a mode.
+    if (is_int($value)) {
+        return $value;
+    }
+
+    if (!is_string($value)) {
+        return null;
+    }
+
+    if (!preg_match('#^0?o?([0-7]{3,4})$#i', trim($value), $matches)) {
+        return null;
+    }
+
+    return octdec($matches[1]);
+}
+
+/**
  * Return a human readable filesize.
  *
  * @param int $bytes

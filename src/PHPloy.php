@@ -8,7 +8,7 @@
  * @link https://github.com/banago/PHPloy
  * @licence MIT Licence
  *
- * @version 4.10.0
+ * @version 4.11.1
  */
 
 namespace Banago\PHPloy;
@@ -25,7 +25,7 @@ class PHPloy
     /**
      * @var string
      */
-    protected $version = '4.11.0';
+    protected $version = '4.11.1';
 
     /**
      * @var string
@@ -857,6 +857,14 @@ class PHPloy
         $connection = new Connection($server);
         $this->connection = $connection->server;
         $this->connectionProvider = $connection->getConnectionProvider();
+
+        if (!empty($connection->permissions)) {
+            $this->debug(sprintf(
+                'Uploaded files are chmodded to 0%o, created directories to 0%o.',
+                $connection->permissions['file'],
+                $connection->permissions['directory']
+            ));
+        }
     }
 
     /**

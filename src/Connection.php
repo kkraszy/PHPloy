@@ -22,6 +22,12 @@ class Connection
      */
     public $server;
     /**
+     * The modes uploads are actually chmodded to, for reporting.
+     *
+     * @var array
+     */
+    public $permissions = [];
+    /**
      * @var ConnectionProvider
      */
     private $provider;
@@ -58,24 +64,58 @@ class Connection
             'password' => $server['pass'],
             'root' => $server['path'],
             'timeout' => ($server['timeout'] ?: 300),
-            'directoryPerm' => $server['directoryPerm'],
+            'permPrivate' => $this->getPermission($server, 'permPrivate', 0640),
+            'permPublic' => $this->getPermission($server, 'permPublic', 0644),
+            'directoryPerm' => $this->getPermission($server, 'directoryPerm', 0755),
         ];
-        if ($server['permPrivate']) {
-            $options['permPrivate'] = intval($server['permPrivate'], 0);
-        }
-        if ($server['permPublic']) {
-            $options['permPublic'] = intval($server['permPublic'], 0);
-        }
-        // "permissions" is the documented (deploy.ini) knob for file permissions;
-        // it overrides permPublic so the visibility converter chmods files to it.
-        if ($server['permissions']) {
-            $options['permPublic'] = intval($server['permissions'], 0);
-        }
-        if ($server['directoryPerm']) {
-            $options['directoryPerm'] = intval($server['directoryPerm'], 0);
+
+        // "permissions" is the documented (deploy.ini) knob for file permissions:
+        // it applies to every uploaded file, so it overrides both file modes and
+        // the visibility converter chmods uploads to it whatever the visibility is.
+        if ($server['permissions'] !== null && $server['permissions'] !== '') {
+            $options['permPublic'] = $this->getPermission($server, 'permissions', 0644);
+            $options['permPrivate'] = $options['permPublic'];
         }
 
+        $this->permissions = [
+            'file' => ($server['visibility'] ?? 'public') === 'private'
+                ? $options['permPrivate']
+                : $options['permPublic'],
+            'directory' => $options['directoryPerm'],
+        ];
+
         return $options;
+    }
+
+    /**
+     * Reads a permission from the configuration as a chmod mode.
+     *
+     * @param array  $server
+     * @param string $key
+     * @param int    $default
+     *
+     * @throws \Exception if the configured value is not a permission
+     *
+     * @return int
+     */
+    private function getPermission($server, $key, $default)
+    {
+        $value = isset($server[$key]) ? $server[$key] : null;
+
+        if ($value === null || $value === '') {
+            return $default;
+        }
+
+        $mode = parse_permission($value);
+
+        if ($mode === null) {
+            throw new \Exception(
+                "Invalid '{$key}' value in the configuration: '{$value}'. ".
+                'Please use an octal mode such as 0644.'
+            );
+        }
+
+        return $mode;
     }
 
     /**
